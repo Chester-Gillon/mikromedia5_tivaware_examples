@@ -57,7 +57,7 @@
 //! <h1>EPI SDRAM Mode (sdram)</h1>
 //!
 //! This example shows how to configure the TM4C129 EPI bus in SDRAM mode.  It
-//! assumes that a 64Mbit SDRAM is attached to EPI0.
+//! assumes that a 8Mbit SDRAM is attached to EPI0.
 //!
 //! For the EPI SDRAM mode, the pinout is as follows:
 //!     Address11:0 - EPI0S11:0
@@ -140,12 +140,11 @@
 
 //*****************************************************************************
 //
-// The starting and ending address for the 64MB SDRAM chip (32Meg x 16bits) on
-// the mikromedia-5 board.
+// The size of the 8MB SDRAM chip (4Meg x 16bits) on the mikromedia-5 board.
 //
 //*****************************************************************************
-#define SDRAM_START_ADDRESS 0x00000000
-#define SDRAM_END_ADDRESS   0x01FFFFFF
+#define SDRAM_SIZE_BYTES    0x00800000
+#define SDRAM_SIZE_WORDS   (SDRAM_SIZE_BYTES / sizeof (uint32_t))
 
 //*****************************************************************************
 //
@@ -156,11 +155,10 @@
 
 //*****************************************************************************
 //
-// A pointer to the EPI memory aperture.  Note that g_pui16EPISdram is declared
-// as volatile so the compiler should not optimize reads out of the image.
+// A pointer to the EPI memory aperture.
 //
 //*****************************************************************************
-static volatile uint16_t *g_pui16EPISdram;
+static uint32_t *const sdram_base = (uint32_t *) SDRAM_MAPPING_ADDRESS;
 
 //*****************************************************************************
 //
@@ -262,6 +260,9 @@ int
 main(void)
 {
     uint32_t ui32Val, ui32Freq, ui32SysClock;
+    uint32_t index;
+    uint32_t num_errors;
+    uint32_t offset;
 
     //
     // Set the clocking to run at 120MHz from the PLL.
@@ -282,9 +283,9 @@ main(void)
     UARTprintf("  Type: SDRAM\n");
     UARTprintf("  Starting Address: 0x%08x\n", SDRAM_MAPPING_ADDRESS);
     UARTprintf("  End Address: 0x%08x\n",
-               (SDRAM_MAPPING_ADDRESS + SDRAM_END_ADDRESS));
+               (SDRAM_MAPPING_ADDRESS + SDRAM_SIZE_BYTES - 1));
     UARTprintf("  Data: 16-bit\n");
-    UARTprintf("  Size: 64MB (32Meg x 16bits)\n\n");
+    UARTprintf("  Size: 8MB (4Meg x 16bits)\n\n");
 
     //
     // The EPI0 peripheral must be enabled for use.
@@ -374,7 +375,7 @@ main(void)
 
     //
     // Sets the usage mode of the EPI module.  For this example we will use
-    // the SDRAM mode to talk to the external 64MB SDRAM daughter card.
+    // the SDRAM mode to talk to the external 8MB SDRAM daughter card.
     //
     EPIModeSet(EPI0_BASE, EPI_MODE_SDRAM);
 
@@ -407,18 +408,18 @@ main(void)
     // Configure the SDRAM mode.  We configure the SDRAM according to our core
     // clock frequency.  We will use the normal (or full power) operating
     // state which means we will not use the low power self-refresh state.
-    // Set the SDRAM size to 64MB with a refresh interval of 1024 clock ticks.
+    // Set the SDRAM size to 8MB with a refresh interval of 1024 clock ticks.
     //
     EPIConfigSDRAMSet(EPI0_BASE, (ui32Freq | EPI_SDRAM_FULL_POWER |
-                      EPI_SDRAM_SIZE_512MBIT), 1024);
+                      EPI_SDRAM_SIZE_64MBIT), 1024);
 
     //
     // Set the address map.  The EPI0 is mapped from 0x60000000 to 0x01FFFFFF.
     // For this example, we will start from a base address of 0x60000000 with
-    // a size of 256MB.  Although our SDRAM is only 64MB, there is no 64MB
+    // a size of 16MB.  Although our SDRAM is only 8MB, there is no 8MB
     // aperture option so we pick the next larger size.
     //
-    EPIAddressMapSet(EPI0_BASE, EPI_ADDR_RAM_SIZE_256MB | EPI_ADDR_RAM_BASE_6);
+    EPIAddressMapSet(EPI0_BASE, EPI_ADDR_RAM_SIZE_16MB | EPI_ADDR_RAM_BASE_6);
 
     //
     // Wait for the SDRAM wake-up to complete by polling the SDRAM
@@ -430,84 +431,38 @@ main(void)
     {
     }
 
-    //
-    // Set the EPI memory pointer to the base of EPI memory space.  Note that
-    // g_pui16EPISdram is declared as volatile so the compiler should not
-    // optimize reads out of the memory.  With this pointer, the memory space
-    // is accessed like a simple array.
-    //
-    g_pui16EPISdram = (uint16_t *)0x60000000;
-
-    //
-    // Read the initial data in SDRAM, and display it on the console.
-    //
-    UARTprintf("  SDRAM Initial Data:\n");
-    UARTprintf("     Mem[0x6000.0000] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_START_ADDRESS]);
-    UARTprintf("     Mem[0x6000.0001] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_START_ADDRESS + 1]);
-    UARTprintf("     Mem[0x603F.FFFE] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_END_ADDRESS - 1]);
-    UARTprintf("     Mem[0x603F.FFFF] = 0x%4x\n\n",
-               g_pui16EPISdram[SDRAM_END_ADDRESS]);
-
-    //
-    // Display what writes we are doing on the console.
-    //
-    UARTprintf("  SDRAM Write:\n");
-    UARTprintf("     Mem[0x6000.0000] <- 0xabcd\n");
-    UARTprintf("     Mem[0x6000.0001] <- 0x1234\n");
-    UARTprintf("     Mem[0x603F.FFFE] <- 0xdcba\n");
-    UARTprintf("     Mem[0x603F.FFFF] <- 0x4321\n\n");
-
-    //
-    // Write to the first 2 and last 2 address of the SDRAM card.  Since the
-    // SDRAM card is word addressable, we will write words.
-    //
-    g_pui16EPISdram[SDRAM_START_ADDRESS] = 0xabcd;
-    g_pui16EPISdram[SDRAM_START_ADDRESS + 1] = 0x1234;
-    g_pui16EPISdram[SDRAM_END_ADDRESS - 1] = 0xdcba;
-    g_pui16EPISdram[SDRAM_END_ADDRESS] = 0x4321;
-
-    //
-    // Read back the data you wrote, and display it on the console.
-    //
-    UARTprintf("  SDRAM Read:\n");
-    UARTprintf("     Mem[0x6000.0000] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_START_ADDRESS]);
-    UARTprintf("     Mem[0x6000.0001] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_START_ADDRESS + 1]);
-    UARTprintf("     Mem[0x603F.FFFE] = 0x%4x\n",
-               g_pui16EPISdram[SDRAM_END_ADDRESS - 1]);
-    UARTprintf("     Mem[0x603F.FFFF] = 0x%4x\n\n",
-               g_pui16EPISdram[SDRAM_END_ADDRESS]);
-
-    //
-    // Check the validity of the data.
-    //
-    if((g_pui16EPISdram[SDRAM_START_ADDRESS] == 0xabcd) &&
-       (g_pui16EPISdram[SDRAM_START_ADDRESS + 1] == 0x1234) &&
-       (g_pui16EPISdram[SDRAM_END_ADDRESS - 1] == 0xdcba) &&
-       (g_pui16EPISdram[SDRAM_END_ADDRESS] == 0x4321))
+    num_errors = 0;
+    offset = 0;
+    for (;;)
     {
-        //
-        // Read and write operations were successful.  Return with no errors.
-        //
-        UARTprintf("Read and write to external SDRAM was successful!\n");
-        return(0);
-    }
+        UARTprintf ("Write test starting with offset %u\n", offset);
+        for (index = 0; index < SDRAM_SIZE_WORDS; index++)
+        {
+            sdram_base[index] = index + offset;
+        }
 
-    //
-    // Display on the console that there was an error.
-    //
-    UARTprintf("Read and/or write failure!");
-    UARTprintf(" Check if your SDRAM card is plugged in.");
+        for (index = 0; index < SDRAM_SIZE_WORDS; index++)
+        {
+            if (sdram_base[index] != (index + offset))
+            {
+                num_errors++;
+            }
+        }
+        UARTprintf ("After index write num_errors=%u\n", num_errors);
 
-    //
-    // Read and/or write operations were unsuccessful.  Wait in while(1) loop
-    // for debugging.
-    //
-    while(1)
-    {
+        for (index = 0; index < SDRAM_SIZE_WORDS; index++)
+        {
+            sdram_base[index] = ~(index + offset);
+        }
+        for (index = 0; index < SDRAM_SIZE_WORDS; index++)
+        {
+            if (sdram_base[index] != ~(index + offset))
+            {
+                num_errors++;
+            }
+        }
+
+        UARTprintf ("After ~index write num_errors=%u\n", num_errors);
+        offset++;
     }
 }
